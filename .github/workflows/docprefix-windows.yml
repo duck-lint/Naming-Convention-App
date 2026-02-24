@@ -1,0 +1,100 @@
+name: Build DocPrefix (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      onefile:
+        description: "Also build ONEFILE executable (more AV false-positive prone)"
+        required: false
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - "doc_prefix.py"
+      - "doc_prefix_gui.pyw"
+      - "packaging/**"
+      - "tests/**"
+      - ".github/workflows/docprefix-windows.yml"
+  pull_request:
+    paths:
+      - "doc_prefix.py"
+      - "doc_prefix_gui.pyw"
+      - "packaging/**"
+      - "tests/**"
+      - ".github/workflows/docprefix-windows.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docprefix-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows Build + Release Artifacts
+    runs-on: windows-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      # Build ONEFILE on version tags by default; workflow_dispatch can opt in/out.
+      BUILD_ONEFILE: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.onefile == true) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Show Python version
+        shell: pwsh
+        run: python --version
+
+      - name: Smoke test (headless)
+        shell: pwsh
+        run: python packaging/smoke_test.py
+
+      - name: Unit tests
+        shell: pwsh
+        run: python -m unittest -v tests.test_doc_prefix
+
+      - name: Build packaged artifacts (ONEDIR default, optional ONEFILE)
+        shell: pwsh
+        run: |
+          $args = @("-SkipSmokeTest")
+          if ($env:BUILD_ONEFILE -eq "true") {
+            Write-Host "ONEFILE build enabled for this run."
+            $args += "-OneFile"
+          } else {
+            Write-Host "ONEFILE build disabled for this run."
+          }
+
+          Set-ExecutionPolicy -Scope Process Bypass
+          & .\packaging\build.ps1 @args
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocPrefix-windows-build-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            release/*
+            dist/DocPrefix/**
+            dist/DocPrefix/DocPrefix.exe.sha256.txt
+
+      - name: Publish GitHub Release assets (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/*.zip
+            release/*.exe
+            release/*.sha256.txt
+            dist/DocPrefix/DocPrefix.exe.sha256.txt

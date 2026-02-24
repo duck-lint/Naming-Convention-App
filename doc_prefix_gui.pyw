@@ -15,6 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from doc_prefix import (
     PlanItem,
+    __version__,
     apply_plan,
     parse_yyyymm_arg,
     plan_renames,
@@ -49,9 +50,10 @@ class DocPrefixGui(ttk.Frame):
         self._set_apply_enabled(False)
 
     def _build_ui(self) -> None:
-        self.master.title("Document Prefix Renamer")
+        self.master.title(f"Document Prefix Renamer v{__version__}")
         self.master.geometry("900x650")
         self.master.minsize(760, 520)
+        self._build_menu()
 
         self.master.columnconfigure(0, weight=1)
         self.master.rowconfigure(0, weight=1)
@@ -171,6 +173,13 @@ class DocPrefixGui(ttk.Frame):
         self.status_label = ttk.Label(self, textvariable=self.status_var, anchor="w")
         self.status_label.grid(row=2, column=0, sticky="ew", pady=(8, 0))
 
+    def _build_menu(self) -> None:
+        menubar = tk.Menu(self.master)
+        help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(label="About", command=self.on_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        self.master.configure(menu=menubar)
+
     def _wire_events(self) -> None:
         for var in (
             self.directory_var,
@@ -213,6 +222,18 @@ class DocPrefixGui(ttk.Frame):
 
     def _show_error(self, title: str, message: str) -> None:
         messagebox.showerror(title, message, parent=self.master)
+
+    def on_about(self) -> None:
+        messagebox.showinfo(
+            "About DocPrefix",
+            (
+                f"DocPrefix v{__version__}\n\n"
+                "Local document filename prefixing utility.\n"
+                "Preview-first workflow with confirmation before applying renames.\n"
+                "No network access is used by this tool."
+            ),
+            parent=self.master,
+        )
 
     def _collect_form_inputs(self) -> dict[str, object]:
         directory_text = self.directory_var.get().strip()
