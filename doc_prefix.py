@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import string
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,11 @@ PREFIX_RE = re.compile(r"^\d{6} - .+?, .+? - ")
 
 
 WINDOWS_FORBIDDEN = r'<>:"/\|?*'
+DEFAULT_PREFIX_TEMPLATE = "{yyyymm} - {last}, {first} - "
+SUPPORTED_PREFIX_TEMPLATE_FIELDS = ("yyyymm", "last", "first")
+SUPPORTED_PREFIX_PLACEHOLDERS = tuple(
+    f"{{{name}}}" for name in SUPPORTED_PREFIX_TEMPLATE_FIELDS
+)
 
 
 def sanitize_component(s: str) -> str:
@@ -42,6 +48,45 @@ def parse_yyyymm_arg(value: str) -> str:
     if not re.fullmatch(r"\d{6}", value):
         raise argparse.ArgumentTypeError("--date must be YYYYMM (e.g., 202602)")
     return value
+
+
+def validate_prefix_template(template: str) -> None:
+    supported = ", ".join(SUPPORTED_PREFIX_PLACEHOLDERS)
+    if not template or not template.strip():
+        raise ValueError(
+            f"Template must not be empty. Supported placeholders: {supported}"
+        )
+
+    formatter = string.Formatter()
+    unknown_fields: set[str] = set()
+    try:
+        for _literal, field_name, format_spec, conversion in formatter.parse(template):
+            if field_name is None:
+                continue
+            if field_name == "":
+                raise ValueError(
+                    f"Template contains an empty placeholder. Supported placeholders: {supported}"
+                )
+            if conversion:
+                raise ValueError(
+                    f"Template conversions are not supported. Supported placeholders: {supported}"
+                )
+            if format_spec:
+                raise ValueError(
+                    f"Template format specifiers are not supported. Supported placeholders: {supported}"
+                )
+            if field_name not in SUPPORTED_PREFIX_TEMPLATE_FIELDS:
+                unknown_fields.add(field_name)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid template syntax: {exc}. Supported placeholders: {supported}"
+        ) from exc
+
+    if unknown_fields:
+        unknown_list = ", ".join(sorted(f"{{{name}}}" for name in unknown_fields))
+        raise ValueError(
+            f"Unsupported placeholder(s): {unknown_list}. Supported placeholders: {supported}"
+        )
 
 
 def yyyymm_from_now() -> str:
@@ -97,6 +142,7 @@ def build_prefix(
     date_yyyymm: Optional[str],
     use_mtime: bool,
     file_path: Optional[Path],
+    template: str = DEFAULT_PREFIX_TEMPLATE,
 ) -> str:
     first_s = sanitize_component(first)
     last_s = sanitize_component(last)
@@ -112,7 +158,8 @@ def build_prefix(
             "Internal error: date_yyyymm must be provided when not using --use-mtime"
         )
 
-    return f"{yyyymm} - {last_s}, {first_s} - "
+    validate_prefix_template(template)
+    return template.format(yyyymm=yyyymm, last=last_s, first=first_s)
 
 
 def plan_renames(
@@ -125,6 +172,7 @@ def plan_renames(
     conflict: str,
     date_yyyymm: Optional[str],
     use_mtime: bool,
+    template: str = DEFAULT_PREFIX_TEMPLATE,
 ) -> list[PlanItem]:
     items: list[PlanItem] = []
 
@@ -136,7 +184,12 @@ def plan_renames(
             continue
 
         prefix = build_prefix(
-            first, last, date_yyyymm=date_yyyymm, use_mtime=use_mtime, file_path=p
+            first,
+            last,
+            date_yyyymm=date_yyyymm,
+            use_mtime=use_mtime,
+            file_path=p,
+            template=template,
         )
         new_name = prefix + name
         dst = p.with_name(new_name)

@@ -8,7 +8,7 @@ This repository includes a lightweight Windows GUI for the document prefix renam
 - `doc_prefix_gui.pyw` (Tkinter GUI, no third-party dependencies)
 - `doc_prefix.py` (shared core rename logic + CLI)
 
-The GUI reuses the same planning/apply logic as the CLI and keeps the same naming format:
+The GUI reuses the same planning/apply logic as the CLI and uses this default naming format:
 
 `YYYYMM - Lastname, Firstname - <existing filename>`
 
@@ -18,6 +18,8 @@ The GUI reuses the same planning/apply logic as the CLI and keeps the same namin
 - Recursive mode
 - Force mode (re-prefix already-prefixed files)
 - Conflict handling: `skip`, `suffix`, `overwrite`
+- Editable prefix template in the GUI (default preserves the format above)
+  - Supported placeholders: `{yyyymm}`, `{last}`, `{first}`
 - Date modes:
   - Current month
   - File modified time (mtime)

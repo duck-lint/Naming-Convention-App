@@ -14,12 +14,14 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from doc_prefix import (
+    DEFAULT_PREFIX_TEMPLATE,
     PlanItem,
     __version__,
     apply_plan,
     parse_yyyymm_arg,
     plan_renames,
     rel_display,
+    validate_prefix_template,
     yyyymm_from_now,
 )
 
@@ -33,6 +35,7 @@ class DocPrefixGui(ttk.Frame):
         self.directory_var = tk.StringVar()
         self.first_var = tk.StringVar()
         self.last_var = tk.StringVar()
+        self.template_var = tk.StringVar(value=DEFAULT_PREFIX_TEMPLATE)
         self.recursive_var = tk.BooleanVar(value=False)
         self.force_var = tk.BooleanVar(value=False)
         self.conflict_var = tk.StringVar(value="suffix")
@@ -84,8 +87,14 @@ class DocPrefixGui(ttk.Frame):
         self.last_entry = ttk.Entry(form, textvariable=self.last_var)
         self.last_entry.grid(row=1, column=3, sticky="ew", pady=(8, 0))
 
+        ttk.Label(form, text="Template:").grid(
+            row=2, column=0, sticky="w", pady=(8, 0), padx=(0, 6)
+        )
+        self.template_entry = ttk.Entry(form, textvariable=self.template_var)
+        self.template_entry.grid(row=2, column=1, columnspan=4, sticky="ew", pady=(8, 0))
+
         options = ttk.Frame(form)
-        options.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(10, 0))
+        options.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(10, 0))
         options.columnconfigure(5, weight=1)
 
         ttk.Checkbutton(options, text="Recursive", variable=self.recursive_var).grid(
@@ -105,7 +114,7 @@ class DocPrefixGui(ttk.Frame):
         self.conflict_combo.grid(row=0, column=3, sticky="w")
 
         self.date_frame = ttk.LabelFrame(form, text="Date Mode")
-        self.date_frame.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(10, 0))
+        self.date_frame.grid(row=4, column=0, columnspan=5, sticky="ew", pady=(10, 0))
         self.date_frame.columnconfigure(3, weight=1)
 
         ttk.Radiobutton(
@@ -135,7 +144,7 @@ class DocPrefixGui(ttk.Frame):
         self.custom_date_entry.grid(row=0, column=3, sticky="w", padx=(0, 8), pady=6)
 
         actions = ttk.Frame(form)
-        actions.grid(row=4, column=0, columnspan=5, sticky="ew", pady=(10, 0))
+        actions.grid(row=5, column=0, columnspan=5, sticky="ew", pady=(10, 0))
 
         self.preview_button = ttk.Button(actions, text="Preview", command=self.on_preview)
         self.preview_button.grid(row=0, column=0, sticky="w")
@@ -185,6 +194,7 @@ class DocPrefixGui(ttk.Frame):
             self.directory_var,
             self.first_var,
             self.last_var,
+            self.template_var,
             self.recursive_var,
             self.force_var,
             self.conflict_var,
@@ -229,6 +239,7 @@ class DocPrefixGui(ttk.Frame):
             (
                 f"DocPrefix v{__version__}\n\n"
                 "Local document filename prefixing utility.\n"
+                "Template field supports safe placeholders for date/name customization.\n"
                 "Preview-first workflow with confirmation before applying renames.\n"
                 "No network access is used by this tool."
             ),
@@ -246,10 +257,15 @@ class DocPrefixGui(ttk.Frame):
 
         first = self.first_var.get().strip()
         last = self.last_var.get().strip()
+        template = self.template_var.get().strip()
         if not first:
             raise ValueError("First name is required.")
         if not last:
             raise ValueError("Last name is required.")
+        try:
+            validate_prefix_template(template)
+        except ValueError as exc:
+            raise ValueError(f"Invalid template: {exc}") from exc
 
         conflict = self.conflict_var.get().strip()
         if conflict not in {"skip", "suffix", "overwrite"}:
@@ -278,6 +294,7 @@ class DocPrefixGui(ttk.Frame):
             "root": root,
             "first": first,
             "last": last,
+            "template": template,
             "recursive": bool(self.recursive_var.get()),
             "force": bool(self.force_var.get()),
             "conflict": conflict,

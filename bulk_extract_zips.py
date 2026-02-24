@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="overwrite existing files instead of skipping duplicates",
     )
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="search for .zip files recursively under --in_dir",
+    )
     parser.add_argument("--dry_run", action="store_true", help="print actions without writing files")
     parser.add_argument("--verbose", action="store_true", help="print per-file actions")
     return parser
@@ -121,8 +126,16 @@ def ensure_dir(path: Path, dry_run: bool) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def iter_zip_files(in_dir: Path) -> Iterable[Path]:
-    return sorted((p for p in in_dir.iterdir() if p.is_file() and p.suffix.lower() == ".zip"), key=lambda p: p.name.lower())
+def iter_zip_files(in_dir: Path, recursive: bool = False) -> Iterable[Path]:
+    if recursive:
+        candidates = (
+            p for p in in_dir.rglob("*") if p.is_file() and p.suffix.lower() == ".zip"
+        )
+    else:
+        candidates = (
+            p for p in in_dir.iterdir() if p.is_file() and p.suffix.lower() == ".zip"
+        )
+    return sorted(candidates, key=lambda p: p.relative_to(in_dir).as_posix().lower())
 
 
 def log(verbose: bool, message: str) -> None:
@@ -204,52 +217,58 @@ def process_zip(
         print(f"!! Error opening {zip_path}: {exc}")
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    in_dir = args.in_dir.expanduser()
-    out_dir = args.out_dir.expanduser()
-    flat_mode = not args.subfolders
-
-    if not in_dir.exists():
-        parser.error(f"--in_dir does not exist: {in_dir}")
-    if not in_dir.is_dir():
-        parser.error(f"--in_dir is not a directory: {in_dir}")
-
+def run_bulk_extract(
+    in_dir: Path,
+    out_dir: Path,
+    *,
+    subfolders: bool,
+    recursive: bool = False,
+    overwrite: bool = False,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> Summary:
     summary = Summary()
     reserved_output_paths: set[str] = set()
-
-    try:
-        zip_files = list(iter_zip_files(in_dir))
-    except Exception as exc:  # noqa: BLE001
-        print(f"Error listing zip files in {in_dir}: {exc}", file=sys.stderr)
-        return 2
-
+    zip_files = list(iter_zip_files(in_dir, recursive=recursive))
     summary.zips_found = len(zip_files)
 
-    if not args.dry_run:
-        try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as exc:  # noqa: BLE001
-            print(f"Error creating output directory {out_dir}: {exc}", file=sys.stderr)
-            return 2
-
-    if summary.zips_found == 0:
-        print(f"No .zip files found in {in_dir}")
-
     for zip_path in zip_files:
-        zip_dest = out_dir / zip_path.stem if not flat_mode else out_dir
+        zip_dest = out_dir / zip_path.stem if subfolders else out_dir
         process_zip(
             zip_path,
             zip_dest,
-            overwrite=args.overwrite,
-            dry_run=args.dry_run,
-            verbose=args.verbose,
+            overwrite=overwrite,
+            dry_run=dry_run,
+            verbose=verbose,
             reserved_output_paths=reserved_output_paths,
             summary=summary,
         )
 
+    return summary
+
+
+def bulk_extract_zips(
+    in_dir: Path,
+    out_dir: Path,
+    *,
+    subfolders: bool,
+    recursive: bool = False,
+    overwrite: bool = False,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> Summary:
+    return run_bulk_extract(
+        in_dir,
+        out_dir,
+        subfolders=subfolders,
+        recursive=recursive,
+        overwrite=overwrite,
+        dry_run=dry_run,
+        verbose=verbose,
+    )
+
+
+def print_summary(summary: Summary) -> None:
     print("\nSummary:")
     print(f"  zips_found: {summary.zips_found}")
     print(f"  zips_processed: {summary.zips_processed}")
@@ -259,6 +278,46 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  files_skipped_unsafe: {summary.files_skipped_unsafe}")
     print(f"  other_errors_count: {summary.other_errors_count}")
 
+
+def run_from_args(args: argparse.Namespace) -> Summary:
+    in_dir = args.in_dir.expanduser()
+    out_dir = args.out_dir.expanduser()
+
+    if not args.dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    return run_bulk_extract(
+        in_dir,
+        out_dir,
+        subfolders=bool(args.subfolders),
+        recursive=bool(getattr(args, "recursive", False)),
+        overwrite=args.overwrite,
+        dry_run=args.dry_run,
+        verbose=args.verbose,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    in_dir = args.in_dir.expanduser()
+
+    if not in_dir.exists():
+        parser.error(f"--in_dir does not exist: {in_dir}")
+    if not in_dir.is_dir():
+        parser.error(f"--in_dir is not a directory: {in_dir}")
+
+    try:
+        summary = run_from_args(args)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Top-level error: {exc}", file=sys.stderr)
+        return 2
+
+    if summary.zips_found == 0:
+        print(f"No .zip files found in {in_dir}")
+
+    print_summary(summary)
     return 0
 
 
