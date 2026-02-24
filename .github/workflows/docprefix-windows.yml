@@ -67,16 +67,16 @@ jobs:
       - name: Build packaged artifacts (ONEDIR default, optional ONEFILE)
         shell: pwsh
         run: |
-          $args = @("-SkipSmokeTest")
+          $buildArgs = @("-SkipSmokeTest")
           if ($env:BUILD_ONEFILE -eq "true") {
             Write-Host "ONEFILE build enabled for this run."
-            $args += "-OneFile"
+            $buildArgs += "-OneFile"
           } else {
             Write-Host "ONEFILE build disabled for this run."
           }
 
           Set-ExecutionPolicy -Scope Process Bypass
-          & .\packaging\build.ps1 @args
+          & .\packaging\build.ps1 @buildArgs
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

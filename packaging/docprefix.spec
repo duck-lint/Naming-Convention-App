@@ -13,7 +13,9 @@ Notes:
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(SPECPATH).resolve().parent.parent
+# SPECPATH is the directory containing this spec file (`.../packaging`).
+# The repo root is one level up from that.
+PROJECT_ROOT = Path(SPECPATH).resolve().parent
 
 
 a = Analysis(
