@@ -1,6 +1,3 @@
-# QoL Automation
-A collection of small, well-scoped automation tools for everyday workflows. Emphasis on deterministic behavior, explicit flags, safe defaults (skip/never overwrite), and clear logs. Mostly Python/PowerShell utilities for file ops, media organization, and one-off productivity fixes.
-
 ## Document Prefix Renamer (GUI)
 
 This repository includes a lightweight Windows GUI for the document prefix renamer:
