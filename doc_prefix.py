@@ -181,6 +181,15 @@ def plan_renames(
     for p in iter_files(root, recursive=recursive):
         name = p.name
 
+        if date_yyyymm is not None:
+            desired_yyyymm = date_yyyymm
+        elif use_mtime:
+            desired_yyyymm = yyyymm_from_mtime(p)
+        else:
+            raise ValueError(
+                "Internal error: date_yyyymm must be provided when not using --use-mtime"
+            )
+
         prefix = build_prefix(
             first,
             last,
@@ -193,9 +202,14 @@ def plan_renames(
         if not force:
             existing_prefix = PREFIX_RE.match(name)
             if existing_prefix:
+                existing_yyyymm = existing_prefix.group("yyyymm")
                 existing_last = sanitize_component(existing_prefix.group("last")).casefold()
                 existing_first = sanitize_component(existing_prefix.group("first")).casefold()
-                if existing_last == desired_last and existing_first == desired_first:
+                if (
+                    existing_yyyymm == desired_yyyymm
+                    and existing_last == desired_last
+                    and existing_first == desired_first
+                ):
                     items.append(PlanItem(p, p, "skip:already-prefixed"))
                     continue
 
