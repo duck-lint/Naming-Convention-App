@@ -167,6 +167,71 @@ class DocPrefixTests(unittest.TestCase):
             self.assertEqual(plan[0].dst, src)
             self.assertEqual(plan[0].reason, "skip:already-prefixed")
 
+    def test_suffix_resolves_planned_destination_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_file(root, "202602 - Doe, Jane - a.txt", "A")
+            self.write_file(root, "202603 - Doe, Jane - a.txt", "B")
+
+            plan = doc_prefix.plan_renames(
+                root,
+                first="Jane",
+                last="Doe",
+                recursive=False,
+                force=False,
+                conflict="suffix",
+                date_yyyymm="202604",
+                use_mtime=False,
+            )
+
+            rename_items = [it for it in plan if it.reason.startswith("rename")]
+            self.assertEqual(len(rename_items), 2)
+            dst_names = [it.dst.name for it in rename_items]
+            self.assertEqual(len(set(dst_names)), 2)
+            self.assertIn("202604 - Doe, Jane - a.txt", dst_names)
+            self.assertIn("202604 - Doe, Jane - a (1).txt", dst_names)
+
+    def test_skip_marks_planned_destination_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_file(root, "202602 - Doe, Jane - a.txt", "A")
+            self.write_file(root, "202603 - Doe, Jane - a.txt", "B")
+
+            plan = doc_prefix.plan_renames(
+                root,
+                first="Jane",
+                last="Doe",
+                recursive=False,
+                force=False,
+                conflict="skip",
+                date_yyyymm="202604",
+                use_mtime=False,
+            )
+
+            rename_items = [it for it in plan if it.reason.startswith("rename")]
+            self.assertEqual(len(rename_items), 1)
+            self.assertEqual(sum(it.reason == "skip:conflict-planned" for it in plan), 1)
+
+    def test_overwrite_rejects_duplicate_planned_destinations(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_file(root, "202602 - Doe, Jane - a.txt", "A")
+            self.write_file(root, "202603 - Doe, Jane - a.txt", "B")
+
+            with self.assertRaisesRegex(
+                ValueError, r"Multiple sources.*same destination"
+            ):
+                doc_prefix.plan_renames(
+                    root,
+                    first="Jane",
+                    last="Doe",
+                    recursive=False,
+                    force=False,
+                    conflict="overwrite",
+                    date_yyyymm="202604",
+                    use_mtime=False,
+                )
+
     def test_invalid_date_uses_argparse_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             stderr = io.StringIO()
@@ -230,6 +295,19 @@ class DocPrefixTests(unittest.TestCase):
             self.assertEqual((renamed, skipped), (2, 0))
             self.assertEqual((root / "a.txt").read_text(encoding="utf-8"), "B")
             self.assertEqual((root / "b.txt").read_text(encoding="utf-8"), "A")
+
+    def test_apply_plan_wraps_non_overwrite_rename_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "a.txt"
+            dst = root / "b.txt"
+            plan = [doc_prefix.PlanItem(src, dst, "rename")]
+
+            with mock.patch.object(doc_prefix.os, "rename", side_effect=OSError("boom")):
+                with self.assertRaisesRegex(
+                    RuntimeError, r"Failed rename: .*a\.txt .*-> .*b\.txt: .*boom"
+                ):
+                    doc_prefix.apply_plan(plan, conflict="suffix")
 
 
 if __name__ == "__main__":

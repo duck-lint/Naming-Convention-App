@@ -115,12 +115,22 @@ def iter_files(root: Path, recursive: bool) -> Iterator[Path]:
     yield from files
 
 
-def choose_nonconflicting_path(dst: Path) -> Path:
+def _path_key(p: Path) -> str:
+    s = str(p)
+    return s.casefold() if os.name == "nt" else s
+
+
+def choose_nonconflicting_path(
+    dst: Path, *, reserved_dst_keys: Optional[set[str]] = None
+) -> Path:
     """
     If dst exists, return dst with " (n)" inserted before extension.
     Example: "file.pdf" -> "file (1).pdf"
     """
-    if not dst.exists():
+    if reserved_dst_keys is None:
+        reserved_dst_keys = set()
+
+    if not dst.exists() and _path_key(dst) not in reserved_dst_keys:
         return dst
 
     stem = dst.stem
@@ -130,7 +140,10 @@ def choose_nonconflicting_path(dst: Path) -> Path:
     n = 1
     while True:
         candidate = parent / f"{stem} ({n}){suffix}"
-        if not candidate.exists():
+        if (
+            not candidate.exists()
+            and _path_key(candidate) not in reserved_dst_keys
+        ):
             return candidate
         n += 1
 
@@ -175,6 +188,7 @@ def plan_renames(
     template: str = DEFAULT_PREFIX_TEMPLATE,
 ) -> list[PlanItem]:
     items: list[PlanItem] = []
+    reserved_dst_keys: set[str] = set()
     desired_first = sanitize_component(first).casefold()
     desired_last = sanitize_component(last).casefold()
 
@@ -221,24 +235,39 @@ def plan_renames(
             new_name = prefix + name
 
         dst = p.with_name(new_name)
+        dst_key = _path_key(dst)
 
         if dst == p:
             items.append(PlanItem(p, p, "skip:no-change"))
             continue
 
-        if dst.exists():
+        dst_exists = dst.exists()
+        dst_reserved = dst_key in reserved_dst_keys
+        dst_taken = dst_exists or dst_reserved
+        if dst_taken:
             if conflict == "skip":
-                items.append(PlanItem(p, dst, "skip:conflict-exists"))
+                reason = "skip:conflict-exists" if dst_exists else "skip:conflict-planned"
+                items.append(PlanItem(p, dst, reason))
                 continue
             if conflict == "suffix":
-                dst2 = choose_nonconflicting_path(dst)
+                dst2 = choose_nonconflicting_path(
+                    dst, reserved_dst_keys=reserved_dst_keys
+                )
                 items.append(PlanItem(p, dst2, "rename"))
+                reserved_dst_keys.add(_path_key(dst2))
                 continue
             if conflict == "overwrite":
+                if dst_reserved:
+                    raise ValueError(
+                        "Multiple sources target the same destination path in one plan; "
+                        "use conflict='suffix' or conflict='skip'."
+                    )
                 items.append(PlanItem(p, dst, "rename:overwrite"))
+                reserved_dst_keys.add(dst_key)
                 continue
 
         items.append(PlanItem(p, dst, "rename"))
+        reserved_dst_keys.add(dst_key)
 
     return items
 
@@ -341,7 +370,10 @@ def apply_plan(plan: Iterable[PlanItem], *, conflict: str) -> tuple[int, int]:
         src = it.src
         dst = it.dst
 
-        os.rename(src, dst)
+        try:
+            os.rename(src, dst)
+        except OSError as exc:
+            raise RuntimeError(f"Failed rename: {src} -> {dst}: {exc}") from exc
         renamed += 1
 
     return renamed, skipped
